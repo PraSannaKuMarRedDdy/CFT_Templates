@@ -1,5 +1,4 @@
 # CFT_Templates
-Sample CFT Templates 
 
 What is AWS CloudFormation?
 
