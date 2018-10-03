@@ -25,17 +25,9 @@ Mappings:
       Public1:
         CIDR: "10.0.1.0/24"
       Public2:
-        CIDR: "10.0.3.0/24"     
-      Private:
-        CIDR: "10.0.2.0/24"
+        CIDR: "10.0.2.0/24"     
   AWSInstanceType2Arch:
-    t1.micro:
-      Arch: PV64
-    t2.nano:
-      Arch: HVM64
     t2.micro:
-      Arch: HVM64
-    t2.small:
       Arch: HVM64
   AWSRegionArch2AMI:
     us-east-1:
@@ -78,55 +70,15 @@ Resources:
         Protocol: HTTP
         VpcId: !Ref "VPC"
         Targets:
-        - Id:
-            Ref: EC2PublicInstance
+        - Id: !Ref 'EC2PublicInstance1'
+          Port: 80
+        - Id: !Ref 'EC2PublicInstance2'
           Port: 80
         TargetGroupAttributes:
             - Key: deregistration_delay.timeout_seconds
-              Value: 60
-  EC2PrivateInstance:
+              Value: 120
+  EC2PublicInstance1:
     Type: AWS::EC2::Instance
-    Properties:
-      InstanceType: !Ref 'InstanceType'
-      KeyName: !Ref 'KeyName'
-      ImageId: !FindInMap [AWSRegionArch2AMI, !Ref 'AWS::Region', !FindInMap [AWSInstanceType2Arch , !Ref 'InstanceType', Arch]]
-      NetworkInterfaces:
-        - GroupSet:
-            - !Ref InstanceSecurityGroup
-          DeviceIndex: '0'
-          DeleteOnTermination: 'true'
-          SubnetId: !Ref PrivateSubnet
-      Tags:
-          -
-            Key: "Name"
-            Value: "Private"
-  EC2PublicInstance:
-    Type: 'AWS::EC2::Instance'
-    Metadata:
-      'AWS::CloudFormation::Init':
-        configSets:
-          All:
-            - ConfigureSampleApp
-        ConfigureSampleApp:
-          packages:
-            yum:
-              httpd: []
-          files:
-            /var/www/html/index.html:
-              content: !Join 
-                - |+
-
-                - - >-
-                    <h1>Congratulations, you have successfully launched the AWS
-                    CloudFormation sample.</h1>
-              mode: '000644'
-              owner: root
-              group: root
-          services:
-            sysvinit:
-              httpd:
-                enabled: 'true'
-                ensureRunning: 'true'
     Properties:
       InstanceType: !Ref InstanceType
       ImageId: !FindInMap 
@@ -144,38 +96,55 @@ Resources:
           DeviceIndex: '0'
           DeleteOnTermination: 'true'
           SubnetId: !Ref PublicSubnet1
-      UserData: !Base64 
-        'Fn::Join':
-          - ''
-          - - |
-              #!/bin/bash -xe
-            - |
-              yum update -y aws-cfn-bootstrap
-            - |
-              # Install the files and packages from the metadata
-            - '/opt/aws/bin/cfn-init -v '
-            - '         --stack '
-            - !Ref 'AWS::StackName'
-            - '         --resource WebServerInstance '
-            - '         --configsets All '
-            - '         --region '
-            - !Ref 'AWS::Region'
-            - |+
-
-            - |
-              # Signal the status from cfn-init
-            - '/opt/aws/bin/cfn-signal -e $? '
-            - '         --stack '
-            - !Ref 'AWS::StackName'
-            - '         --resource WebServerInstance '
-            - '         --region '
-            - !Ref 'AWS::Region'
-            - |+
-
+      UserData:
+        Fn::Base64:
+          !Sub |
+            #!/bin/bash
+            yum update -y
+            yum install -y httpd
+            systemctl start httpd.service
+            systemctl enable httpd.service
+            echo "<html><body><h1>Welcome Server1</h1>" > /var/www/html/index.html
+            echo "Congratulations You are successfully launched Server1" >> /var/www/html/index.html
+            echo "</body></html>" >> /var/www/html/index.html
       Tags:
           -
             Key: "Name"
-            Value: "Public"
+            Value: "Public1"
+  EC2PublicInstance2:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      ImageId: !FindInMap  
+        - AWSRegionArch2AMI
+        - !Ref 'AWS::Region'
+        - !FindInMap 
+          - AWSInstanceType2Arch
+          - !Ref InstanceType
+          - Arch
+      KeyName: !Ref KeyName
+      NetworkInterfaces:
+        - GroupSet:
+            - !Ref InstanceSecurityGroup
+          AssociatePublicIpAddress: 'true'
+          DeviceIndex: '0'
+          DeleteOnTermination: 'true'
+          SubnetId: !Ref PublicSubnet2
+      UserData: 
+        Fn::Base64:
+          !Sub |
+            #!/bin/bash
+            yum update -y
+            yum install -y httpd
+            systemctl start httpd.service
+            systemctl enable httpd.service
+            echo "<html><body><h1>Welcome Server2</h1>" > /var/www/html/index.html
+            echo "Congratulations You are successfully launched Server2" >> /var/www/html/index.html
+            echo "</body></html>" >> /var/www/html/index.html
+      Tags:
+          -
+            Key: "Name"
+            Value: "Public2"
   VPC:
     Type: AWS::EC2::VPC
     Properties:
@@ -211,13 +180,6 @@ Resources:
       MapPublicIpOnLaunch: "true"
       Tags:
         -
-           Key: "Application"
-           Value:
-            Ref: "AWS::StackName"
-        -
-           Key: "Network"
-           Value: "Public1"
-        -
            Key: "Name"
            Value: "Public1"
   PublicSubnet2:
@@ -236,21 +198,6 @@ Resources:
         -
            Key: "Name"
            Value: "Public2"  
-  PrivateSubnet:
-    Type: "AWS::EC2::Subnet"
-    Properties:
-      VpcId:
-        Ref: "VPC"
-      CidrBlock:
-          Fn::FindInMap:
-            - "SubnetConfig"
-            - "Private"
-            - "CIDR"
-      MapPublicIpOnLaunch: "true"
-      Tags:
-          -
-            Key: "Name"
-            Value: "Private"
   InternetGateway:
       Type: "AWS::EC2::InternetGateway"
       Properties:
@@ -310,38 +257,7 @@ Resources:
       Type: "AWS::EC2::SubnetRouteTableAssociation"
       Properties:
         SubnetId: !Ref 'PublicSubnet2'
-        RouteTableId: !Ref 'PublicRouteTable2'
-  NATGateway:
-      Type: "AWS::EC2::NatGateway"
-      Properties:
-        AllocationId:
-          Fn::GetAtt:
-            - "ElasticIP"
-            - "AllocationId"
-        SubnetId:
-          Ref: "PublicSubnet1"
-  ElasticIP:
-      Type: "AWS::EC2::EIP"
-      Properties:
-        Domain: "vpc"
-  PrivateRouteTable:
-      Type: "AWS::EC2::RouteTable"
-      Properties:
-        VpcId:
-          Ref: "VPC"
-  PrivateRouteToInternet:
-      Type: "AWS::EC2::Route"
-      Properties:
-        RouteTableId:
-          Ref: "PrivateRouteTable"
-        DestinationCidrBlock: "0.0.0.0/0"
-        NatGatewayId:
-          Ref: "NATGateway"
-  PrivateSubnetRouteTableAssociation:
-      Type: "AWS::EC2::SubnetRouteTableAssociation"
-      Properties:
-        SubnetId: !Ref 'PrivateSubnet'
-        RouteTableId: !Ref 'PrivateRouteTable'  
+        RouteTableId: !Ref 'PublicRouteTable2'  
   InstanceSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
