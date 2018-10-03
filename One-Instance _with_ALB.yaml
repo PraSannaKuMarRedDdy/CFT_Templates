@@ -100,13 +100,14 @@ Resources:
         Fn::Base64:
           !Sub |
             #!/bin/bash
-            yum update -y
-            yum install -y httpd
-            systemctl start httpd.service
-            systemctl enable httpd.service
-            echo "<html><body><h1>Welcome Server1</h1>" > /var/www/html/index.html
-            echo "Congratulations You are successfully launched Server1" >> /var/www/html/index.html
-            echo "</body></html>" >> /var/www/html/index.html
+            sudo yum update -y
+            sudo yum install -y httpd
+            sudo service httpd start
+            sudo service httpd on
+            sudo chmod 764 /var/www/html/index.html
+            sudo echo "<html><body><h1>Welcome Server1</h1>" > /var/www/html/index.html
+            sudo echo "Congratulations You are successfully launched Server1" >> /var/www/html/index.html
+            sudo echo "</body></html>" >> /var/www/html/index.html
       Tags:
           -
             Key: "Name"
@@ -134,13 +135,14 @@ Resources:
         Fn::Base64:
           !Sub |
             #!/bin/bash
-            yum update -y
-            yum install -y httpd
-            systemctl start httpd.service
-            systemctl enable httpd.service
-            echo "<html><body><h1>Welcome Server2</h1>" > /var/www/html/index.html
-            echo "Congratulations You are successfully launched Server2" >> /var/www/html/index.html
-            echo "</body></html>" >> /var/www/html/index.html
+            sudo yum update -y
+            sudo yum install -y httpd
+            sudo service httpd start
+            sudo service httpd on
+            sudo chmod 764 /var/www/html/index.html
+            sudo echo "<html><body><h1>Welcome Server2</h1>" > /var/www/html/index.html
+            sudo echo "Congratulations You are successfully launched Server2" >> /var/www/html/index.html
+            sudo echo "</body></html>" >> /var/www/html/index.html
       Tags:
           -
             Key: "Name"
