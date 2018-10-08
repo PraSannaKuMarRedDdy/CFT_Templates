@@ -1,0 +1,250 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Parameters:
+  KeyName:
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the instance
+    Type: AWS::EC2::KeyPair::KeyName
+    ConstraintDescription: must be the name of an existing EC2 KeyPair.
+  InstanceType:
+    Description: WebServer EC2 instance type
+    Type: String
+    Default: t2.micro
+    AllowedValues: [t1.micro, t2.nano, t2.micro, t2.small, t2.medium, t2.large, m1.small]
+    ConstraintDescription: must be a valid EC2 instance type.
+  SSHLocation:
+    Description: The IP address range that can be used to SSH to the EC2 instances
+    Type: String
+    MinLength: 9
+    MaxLength: 18
+    Default: 0.0.0.0/0
+    AllowedPattern: (\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})
+    ConstraintDescription: must be a valid IP CIDR range of the form x.x.x.x/x.
+Mappings:
+  SubnetConfig:
+      VPC:
+        CIDR1: "10.0.0.0/16"
+        CIDR2: "172.34.0.0/16"
+      Public1:
+        CIDR: "10.0.1.0/24"
+      Public2:
+        CIDR:  "172.34.1.0/24"
+  AWSInstanceType2Arch:
+    t2.micro:
+      Arch: HVM64
+  AWSRegionArch2AMI:
+    us-east-1:
+      PV64: ami-2a69aa47
+      HVM64: ami-02e98f78
+      HVMG2: ami-50b4f047
+Resources:
+  ENIInterface1:
+    Type: AWS::EC2::NetworkInterface
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      Description: Interface for controlling traffic such as SSH
+      GroupSet: 
+      - !Ref InstanceSecurityGroup
+      SourceDestCheck: true
+      Tags:
+        -
+          Key: Network
+          Value: ENIInterface1
+  EC2PublicInstance1:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      ImageId: !FindInMap 
+        - AWSRegionArch2AMI
+        - !Ref 'AWS::Region'
+        - !FindInMap 
+          - AWSInstanceType2Arch
+          - !Ref InstanceType
+          - Arch
+      KeyName: !Ref KeyName
+      NetworkInterfaces:
+        -
+          NetworkInterfaceId: !Ref ENIInterface1
+          DeviceIndex: 1
+        - GroupSet:
+            - !Ref InstanceSecurityGroup
+          DeviceIndex: '0'
+          DeleteOnTermination: 'true'
+          SubnetId: !Ref PublicSubnet1
+      UserData: 
+        Fn::Base64:
+          !Sub |
+              #!/bin/bash
+
+              ###### Update the instance routing table  ######
+
+              sed -i '1 i\100 t1' /etc/iproute2/rt_tables
+
+              sed -i '2 i\ 101 t2' /etc/iproute2/rt_tables
+
+              ###								#####
+              ##**** Adding the interface    ****##
+              ###								#####
+
+              cat <<-EOF> /etc/sysconfig/network-scripts/ifcfg-eth1
+              DEVICE="eth1"
+              BOOTPROTO="dhcp"
+              ONBOOT="yes"
+              TYPE="Ethernet"
+              USERCTL="yes"
+              PEERDNS="yes"
+              IPV6INIT="no"
+              PERSISTENT_DHCLIENT="1"
+              EOF
+
+              ###								     #####
+              ##**** Adding the Route for Eth0    ****##
+              ###								     #####
+
+              # Give the Eth0's subnet range in 1st line 
+              # Give the Eth0's primary IP  in 1st line 
+              # Give the Eth0's subnet 1st IP address in 2nd line
+
+              cat <<-EOF> /etc/sysconfig/network-scripts/route-eth0
+              <Eth0's subnet range>/20 dev eth0 src <private ip of the Eth0 interface> table t1
+              default via <Eth0's subnet 1st IP address> dev eth0 table t1
+              EOF
+
+              ###								     #####
+              ##**** Adding the Route for Eth1    ****##
+              ###								     #####
+
+              # Give the Eth1's subnet range in 1st line 
+              # Give the Eth1's primary IP  in 1st line 
+              # Give the Eth1's subnet 1st IP address in 2nd line
+
+              cat <<-EOF> /etc/sysconfig/network-scripts/route-eth1 
+              <Eth1's subnet range>/19 dev eth1 src <private ip of the Eth1 interface> table t2
+              default via <<Eth1's subnet 1st IP address>> dev eth1 table t2
+              EOF
+
+              ###								            #####
+              ##**** Adding the Routing Rule for Eth0    ****##
+              ###								            #####
+              # Give the Eth0's primary IP 
+
+              cat <<-EOF> /etc/sysconfig/network-scripts/rule-eth0
+              table t1 from <Eth0's primary IP>
+              EOF
+
+              ###								            #####
+              ##**** Adding the Routing Rule for Eth1    ****##
+              ###								            #####
+
+              # Give the Eth1's primary IP
+
+              cat <<-EOF> /etc/sysconfig/network-scripts/rule-eth1
+              table t2 from <Eth1's primary IP>
+              EOF
+
+              ###								#####
+              ##**** To Fix Telnet issue     ****##
+              ###								#####
+
+              #If telnet works on secondary interface ip and not on primary interface ip mean add the below in the following file
+
+              echo "GATEWAYDEV=eth0"  >> /etc/sysconfig/network
+
+              ###								            #####
+              ##**** updating the Sysctl parameter       ****##
+              ###											#####	
+
+              echo net.ipv4.conf.all.arp_filter = 1   >> /etc/sysctl.conf
+              echo net.ipv4.conf.default.arp_filter = 1 >> /etc/sysctl.conf
+              echo net.ipv4.conf.all.arp_announce = 2 >> /etc/sysctl.conf
+              echo net.ipv4.conf.default.arp_announce = 2 >> /etc/sysctl.conf
+
+              ###								            #####
+              ##**** Apply the sysctl parameter          ****##
+              ###											#####	
+
+              sysctl -p
+
+              ###								            #####
+              ##**** Restarting the Networking           ****##
+              ###								            #####
+
+              service network restart
+      Tags:
+        -
+          Key: "Name"
+          Value: "Public1"
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      EnableDnsSupport: "false"
+      EnableDnsHostnames: "false"
+      CidrBlock:    
+          Fn::FindInMap:
+            - "SubnetConfig"
+            - "VPC"
+            - "CIDR1"
+      Tags:
+          -
+            Key: "Name"
+            Value: "VPC Public and Private with NAT"
+  VpcCidrBlock:
+    Type: AWS::EC2::VPCCidrBlock
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 172.34.0.0/16
+  PublicSubnet1:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      VpcId:
+        Ref: "VPC"
+      CidrBlock:
+          Fn::FindInMap:
+            - "SubnetConfig"
+            - "Public1"
+            - "CIDR"
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: "true"
+      Tags:
+        -
+           Key: "Name"
+           Value: "Public1"
+  PublicSubnet2:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      VpcId:
+        Ref: "VPC"
+      CidrBlock: 172.34.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: "true"
+      Tags:
+        -
+           Key: "Name"
+           Value: "Public2"
+  InternetGateway:
+      Type: "AWS::EC2::InternetGateway"
+      Properties:
+         Tags:
+          -
+            Key: "Name"
+            Value: "PublicIGW"
+  GatewayToInternet:
+      Type: "AWS::EC2::VPCGatewayAttachment"
+      Properties:
+        VpcId:
+          Ref: "VPC"
+        InternetGatewayId:
+          Ref: "InternetGateway"
+  InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable SSH access via port 22
+      VpcId:
+         Ref: "VPC"
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 22
+        ToPort: 22
+        CidrIp: !Ref 'SSHLocation'
+      - IpProtocol: tcp
+        FromPort: 80
+        ToPort: 80
+        CidrIp: !Ref 'SSHLocation'
