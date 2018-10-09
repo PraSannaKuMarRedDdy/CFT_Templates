@@ -1,7 +1,6 @@
----
-  AWSTemplateFormatVersion: "2010-09-09"
-  Description: "Creates a VPC with Managed NAT, similar to the VPC Wizard at https://console.aws.amazon.com/vpc/home#wizardFullpagePublicAndPrivate: (extended from VPC_with_PublicIPs_And_DNS.template sample)"
-  Mappings:
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Creates a VPC with Managed NAT, similar to the VPC Wizard at https://console.aws.amazon.com/vpc/home#wizardFullpagePublicAndPrivate: (extended from VPC_with_PublicIPs_And_DNS.template sample)"
+Mappings:
     SubnetConfig:
       VPC:
         CIDR: "10.0.0.0/16"
@@ -9,7 +8,7 @@
         CIDR: "10.0.1.0/24"
       Private:
         CIDR: "10.0.2.0/24"
-  Resources:
+Resources:
     VPC:
       Type: "AWS::EC2::VPC"
       Properties:
