@@ -21,12 +21,12 @@ Parameters:
 Mappings:
   SubnetConfig:
       VPC:
-        CIDR1: "10.0.0.0/16"
-        CIDR2: "172.34.0.0/16"
+        CIDR1: "10.19.0.0/16"
+        CIDR2: "10.20.0.0/16"
       Public1:
-        CIDR: "10.0.1.0/24"
+        CIDR: "10.19.1.0/24"
       Public2:
-        CIDR:  "172.34.1.0/24"
+        CIDR:  "10.20.1.0/24"
   AWSInstanceType2Arch:
     t2.micro:
       Arch: HVM64
@@ -36,148 +36,239 @@ Mappings:
       HVM64: ami-02e98f78
       HVMG2: ami-50b4f047
 Resources:
-  ENIInterface1:
+  ENI1:
     Type: AWS::EC2::NetworkInterface
     Properties:
-      SubnetId: !Ref PublicSubnet2
+      SubnetId: !Ref PublicSubnet1
       Description: Interface for controlling traffic such as SSH
-      GroupSet: 
+      PrivateIpAddresses:
+            - PrivateIpAddress: 10.19.1.23
+              Primary: 'true'
+            - PrivateIpAddress: 10.19.1.30
+              Primary: 'false'
+      GroupSet:
       - !Ref InstanceSecurityGroup
       SourceDestCheck: true
       Tags:
         -
           Key: Network
           Value: ENIInterface1
+  ENI2:
+    Type: AWS::EC2::NetworkInterface
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      Description: Interface for controlling traffic such as SSH
+      PrivateIpAddresses:
+            - PrivateIpAddress: 10.20.1.25
+              Primary: 'true'
+      GroupSet:
+      - !Ref InstanceSecurityGroup
+      SourceDestCheck: true
+      Tags:
+        -
+          Key: Network
+          Value: ENIInterface2
   EC2PublicInstance1:
+    DependsOn:
+      - ENI1
+      - ENI2
     Type: AWS::EC2::Instance
     Properties:
       InstanceType: !Ref InstanceType
-      ImageId: !FindInMap 
+      ImageId: !FindInMap
         - AWSRegionArch2AMI
         - !Ref 'AWS::Region'
-        - !FindInMap 
+        - !FindInMap
           - AWSInstanceType2Arch
           - !Ref InstanceType
           - Arch
       KeyName: !Ref KeyName
       NetworkInterfaces:
         -
-          NetworkInterfaceId: !Ref ENIInterface1
+          NetworkInterfaceId: !Ref ENI1
+          DeviceIndex: 0
+        -
+          NetworkInterfaceId: !Ref ENI2
           DeviceIndex: 1
-        - GroupSet:
-            - !Ref InstanceSecurityGroup
-          DeviceIndex: '0'
-          DeleteOnTermination: 'true'
-          SubnetId: !Ref PublicSubnet1
-      UserData: 
-        Fn::Base64:
-          !Sub |
-              #!/bin/bash
-
-              ###### Update the instance routing table  ######
-
-              sed -i '1 i\100 t1' /etc/iproute2/rt_tables
-
-              sed -i '2 i\ 101 t2' /etc/iproute2/rt_tables
-
-              ###								#####
-              ##**** Adding the interface    ****##
-              ###								#####
-
-              cat <<-EOF> /etc/sysconfig/network-scripts/ifcfg-eth1
-              DEVICE="eth1"
-              BOOTPROTO="dhcp"
-              ONBOOT="yes"
-              TYPE="Ethernet"
-              USERCTL="yes"
-              PEERDNS="yes"
-              IPV6INIT="no"
-              PERSISTENT_DHCLIENT="1"
-              EOF
-
-              ###								     #####
-              ##**** Adding the Route for Eth0    ****##
-              ###								     #####
-
-              # Give the Eth0's subnet range in 1st line 
-              # Give the Eth0's primary IP  in 1st line 
-              # Give the Eth0's subnet 1st IP address in 2nd line
-
-              cat <<-EOF> /etc/sysconfig/network-scripts/route-eth0
-              <Eth0's subnet range>/20 dev eth0 src <private ip of the Eth0 interface> table t1
-              default via <Eth0's subnet 1st IP address> dev eth0 table t1
-              EOF
-
-              ###								     #####
-              ##**** Adding the Route for Eth1    ****##
-              ###								     #####
-
-              # Give the Eth1's subnet range in 1st line 
-              # Give the Eth1's primary IP  in 1st line 
-              # Give the Eth1's subnet 1st IP address in 2nd line
-
-              cat <<-EOF> /etc/sysconfig/network-scripts/route-eth1 
-              <Eth1's subnet range>/19 dev eth1 src <private ip of the Eth1 interface> table t2
-              default via <<Eth1's subnet 1st IP address>> dev eth1 table t2
-              EOF
-
-              ###								            #####
-              ##**** Adding the Routing Rule for Eth0    ****##
-              ###								            #####
-              # Give the Eth0's primary IP 
-
-              cat <<-EOF> /etc/sysconfig/network-scripts/rule-eth0
-              table t1 from <Eth0's primary IP>
-              EOF
-
-              ###								            #####
-              ##**** Adding the Routing Rule for Eth1    ****##
-              ###								            #####
-
-              # Give the Eth1's primary IP
-
-              cat <<-EOF> /etc/sysconfig/network-scripts/rule-eth1
-              table t2 from <Eth1's primary IP>
-              EOF
-
-              ###								#####
-              ##**** To Fix Telnet issue     ****##
-              ###								#####
-
-              #If telnet works on secondary interface ip and not on primary interface ip mean add the below in the following file
-
-              echo "GATEWAYDEV=eth0"  >> /etc/sysconfig/network
-
-              ###								            #####
-              ##**** updating the Sysctl parameter       ****##
-              ###											#####	
-
-              echo net.ipv4.conf.all.arp_filter = 1   >> /etc/sysctl.conf
-              echo net.ipv4.conf.default.arp_filter = 1 >> /etc/sysctl.conf
-              echo net.ipv4.conf.all.arp_announce = 2 >> /etc/sysctl.conf
-              echo net.ipv4.conf.default.arp_announce = 2 >> /etc/sysctl.conf
-
-              ###								            #####
-              ##**** Apply the sysctl parameter          ****##
-              ###											#####	
-
-              sysctl -p
-
-              ###								            #####
-              ##**** Restarting the Networking           ****##
-              ###								            #####
-
-              service network restart
       Tags:
         -
           Key: "Name"
           Value: "Public1"
+      UserData:
+        Fn::Base64: !Sub |
+             #!/bin/bash
+
+             ###### Update the instance routing table  ######
+
+             sed -i '1 i\100 t1' /etc/iproute2/rt_tables
+
+             sed -i '2 i\101 t2' /etc/iproute2/rt_tables
+
+             ###                              #####
+             ##**** Adding the interface     ****##
+             ###                              #####
+
+             cat <<-EOF> /etc/sysconfig/network-scripts/ifcfg-eth1
+             DEVICE="eth1"
+             BOOTPROTO="dhcp"
+             ONBOOT="yes"
+             TYPE="Ethernet"
+             USERCTL="yes"
+             PEERDNS="yes"
+             IPV6INIT="no"
+             PERSISTENT_DHCLIENT="1"
+             EOF
+
+             ###                                  #####
+             ##**** Adding the Route for Eth0    ****##
+             ###                                  #####
+
+             # Give the Eth0's subnet range in 1st line
+             # Give the Eth0's primary IP  in 1st line
+             # Give the Eth0's subnet 1st IP address in 2nd line
+
+             cat <<-EOF> /etc/sysconfig/network-scripts/route-eth0
+             10.19.1.0/24 dev eth0 src 10.19.1.23 table t1
+             default via 10.19.1.1 dev eth0 table t1
+             EOF
+
+             ###                                  #####
+             ##**** Adding the Route for Eth1    ****##
+             ###                                  #####
+
+             # Give the Eth1's subnet range in 1st line
+             # Give the Eth1's primary IP  in 1st line
+             # Give the Eth1's subnet 1st IP address in 2nd line
+
+             cat <<-EOF> /etc/sysconfig/network-scripts/route-eth1
+             10.20.1.0/24 dev eth1 src 10.20.1.25 table t2
+             default via 10.20.1.1 dev eth1 table t2
+             EOF
+
+             ###                                          #####
+             ##**** Adding the Routing Rule for Eth0     ****##
+             ###                                          #####
+
+             # Give the Eth0's primary IP
+
+             cat <<-EOF> /etc/sysconfig/network-scripts/rule-eth0
+             table t1 from 10.19.1.23
+             EOF
+
+
+             ###                                          #####
+             ##**** Adding the Routing Rule for Eth1     ****##
+             ###                                          #####
+
+             # Give the Eth1's primary IP
+
+             cat <<-EOF> /etc/sysconfig/network-scripts/rule-eth1
+             table t2 from 10.20.1.25
+             EOF
+
+             ###                              #####
+             ##**** To Fix Telnet issue      ****##
+             ###                              #####
+
+             #If telnet works on secondary interface ip and not on primary interface ip mean add the below in the following file
+
+             echo "GATEWAYDEV=eth0"  >> /etc/sysconfig/network
+
+             ###                                        #####
+             ##**** updating the Sysctl parameter      ****##
+             ###                                        #####
+
+             echo net.ipv4.conf.all.arp_filter = 1   >> /etc/sysctl.conf
+             echo net.ipv4.conf.default.arp_filter = 1 >> /etc/sysctl.conf
+             echo net.ipv4.conf.all.arp_announce = 2 >> /etc/sysctl.conf
+             echo net.ipv4.conf.default.arp_announce = 2 >> /etc/sysctl.conf
+
+             ###                                          #####
+             ##**** Apply the sysctl parameter           ****##
+             ###                                          #####
+
+             sysctl -p
+
+             ####
+             ## changing the permission for eth0 and eth1 route and rule conf file
+             ####
+
+             chmod 644 /etc/sysconfig/network-scripts/ifcfg-eth*
+
+             chmod 644 /etc/sysconfig/network-scripts/route-eth*
+
+             chmod 644 /etc/sysconfig/network-scripts/rule-eth*
+
+
+             ###                                          #####
+             ##**** Restarting the Networking            ****##
+             ###                                          #####
+
+
+             service network restart
+
+             ###
+             # backing up the sshd_config
+             ###
+
+             cp /etc/ssh/sshd_config /opt/sshd_config_bak
+
+             ###
+             # updating the sshd_config
+             ###
+
+             sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/g' /etc/ssh/sshd_config
+
+             ###
+             # Restarting the sshd
+             ###
+
+             service sshd restart
+
+
+             ####
+             ## Add secondary Private ip to Eth0 and Eth1
+             ####
+
+             ## Note: - Add more entry if you have more secondary
+
+             ip addr add 10.19.1.30/24 dev eth0
+
+
+             ####
+             ## Backup the resolv.conf
+             ####
+
+             mv /etc/resolv.conf /opt/resolv.conf_bak
+
+             ####
+             ## Updating the resolv.conf
+             ####
+             cat <<-EOF> /etc/resolv.conf
+             options timeout:2 attempts:5
+             ; generated by /usr/sbin/dhclient-script
+             search ap-southeast-1.compute.internal
+             nameserver 10.19.1.2
+             EOF
+
+
+             ####
+             ## changing the permission for resolv.conf
+             ####
+
+             chmod 644 /etc/resolv.conf
+
+             ###                                          #####
+             ##**** Restarting the Networking            ****##
+             ###                                          #####
+
+             service network restart
   VPC:
     Type: AWS::EC2::VPC
     Properties:
       EnableDnsSupport: "false"
       EnableDnsHostnames: "false"
-      CidrBlock:    
+      CidrBlock:
           Fn::FindInMap:
             - "SubnetConfig"
             - "VPC"
@@ -190,19 +281,15 @@ Resources:
     Type: AWS::EC2::VPCCidrBlock
     Properties:
       VpcId: !Ref VPC
-      CidrBlock: 172.34.0.0/16
+      CidrBlock: 10.20.1.0/16
   PublicSubnet1:
     Type: "AWS::EC2::Subnet"
     Properties:
       VpcId:
         Ref: "VPC"
-      CidrBlock:
-          Fn::FindInMap:
-            - "SubnetConfig"
-            - "Public1"
-            - "CIDR"
+      CidrBlock: 10.19.1.0/24
       AvailabilityZone: !Select [0, !GetAZs '']
-      MapPublicIpOnLaunch: "true"
+      MapPublicIpOnLaunch: "false"
       Tags:
         -
            Key: "Name"
@@ -212,9 +299,9 @@ Resources:
     Properties:
       VpcId:
         Ref: "VPC"
-      CidrBlock: 172.34.1.0/24
+      CidrBlock: 10.20.1.0/24
       AvailabilityZone: !Select [0, !GetAZs '']
-      MapPublicIpOnLaunch: "true"
+      MapPublicIpOnLaunch: "false"
       Tags:
         -
            Key: "Name"
