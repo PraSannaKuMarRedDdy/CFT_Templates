@@ -199,7 +199,7 @@ Resources:
           Ref: "PrivateSubnet"
         RouteTableId:
           Ref: "PrivateRouteTable"
-  Outputs:
+ Outputs:
     VPCId:
       Description: "VPCId of the newly created VPC"
       Value:
